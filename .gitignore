@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+
+# Model artifacts
+models/*.pt
+models/*.joblib
+models/*.pkl
+
+# Data artifacts (keep schema, not raw data if large)
+data/raw/*.csv
+
+# OS / editor
+.vscode/
+.idea/
+.DS_Store
+
+# Streamlit cache
+.streamlit/

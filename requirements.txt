@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+streamlit
+requests
+
+qiskit
+qiskit-aer
+
+torch
+scikit-learn
+joblib
+
+numpy
+scipy
+pandas
+matplotlib
