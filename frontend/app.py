@@ -3,29 +3,55 @@ import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ------------------------
-# Page configuration
-# ------------------------
+# --------------------------------------------------
+# Page Configuration
+# --------------------------------------------------
 st.set_page_config(
     page_title="Quantum AI | Sim-to-Real Analyzer",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ------------------------
+# --------------------------------------------------
+# Custom Styling
+# --------------------------------------------------
+st.markdown("""
+<style>
+.metric-box {
+    background-color: #111827;
+    padding: 20px;
+    border-radius: 12px;
+}
+.section-divider {
+    border-top: 1px solid #333;
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# --------------------------------------------------
 # Header
-# ------------------------
-st.markdown(
-    """
-    # 🧠 Quantum AI – Sim-to-Real Analyzer
+# --------------------------------------------------
+st.title("Quantum AI – Sim-to-Real Noise Analyzer")
+st.caption("Machine Learning Surrogates for Estimating Quantum Noise Degradation")
 
-    This tool evaluates **quantum noise effects** and compares
-    **machine-learning surrogate models** for predicting
-    sim-to-real degradation.
+# --------------------------------------------------
+# Sidebar Controls
+# --------------------------------------------------
+st.sidebar.header("Quantum Configuration")
 
-    ---
-    """
-)
+n_qubits = st.sidebar.slider("Number of Qubits", 2, 6, 3)
+depth = st.sidebar.slider("Circuit Depth", 5, 30, 15)
+p1 = st.sidebar.slider("1Q Error (p₁)", 0.01, 0.05, 0.02, step=0.005)
+p2 = st.sidebar.slider("2Q Error (p₂)", 0.05, 0.20, 0.10, step=0.01)
+shots = st.sidebar.selectbox("Shots", [256, 512, 1024], index=0)
+
+run_eval = st.sidebar.button("Run Evaluation")
+
+# --------------------------------------------------
+# Background Section
+# --------------------------------------------------
 with st.expander("📘 Background: What does this system do?"):
     st.markdown(
         """
@@ -105,55 +131,11 @@ with st.expander("📘 Background: What does this system do?"):
         """
     )
 
-# ------------------------
-# Sidebar – Quantum Configuration
-# ------------------------
-st.sidebar.header("⚙️ Quantum Configuration")
-
-n_qubits = st.sidebar.slider(
-    "Number of Qubits",
-    min_value=2,
-    max_value=6,
-    value=3
-)
-
-depth = st.sidebar.slider(
-    "Circuit Depth",
-    min_value=5,
-    max_value=30,
-    value=15
-)
-
-p1 = st.sidebar.slider(
-    "1-Qubit Gate Error (p₁)",
-    min_value=0.01,
-    max_value=0.05,
-    value=0.01,
-    step=0.005
-)
-
-p2 = st.sidebar.slider(
-    "2-Qubit Gate Error (p₂)",
-    min_value=0.05,
-    max_value=0.20,
-    value=0.12,
-    step=0.01
-)
-
-shots = st.sidebar.selectbox(
-    "Measurement Shots",
-    [256, 512, 1024],
-    index=0
-)
-
-st.sidebar.markdown("---")
-
-run_eval = st.sidebar.button("🚀 Run Evaluation")
-
-# ------------------------
-# Run evaluation
-# ------------------------
+# --------------------------------------------------
+# Evaluation Logic
+# --------------------------------------------------
 if run_eval:
+
     payload = {
         "n_qubits": n_qubits,
         "depth": depth,
@@ -162,7 +144,7 @@ if run_eval:
         "shots": shots
     }
 
-    with st.spinner("Running quantum simulation and surrogate evaluation…"):
+    with st.spinner("Running quantum simulation..."):
         try:
             response = requests.post(
                 "http://127.0.0.1:8000/evaluate",
@@ -170,125 +152,92 @@ if run_eval:
                 timeout=60
             )
         except requests.exceptions.RequestException as e:
-            st.error(f"❌ Backend connection failed: {e}")
+            st.error(f"Backend connection failed: {e}")
             st.stop()
 
     if response.status_code != 200:
-        st.error(f"❌ Backend error ({response.status_code}): {response.text}")
+        st.error(f"Backend error: {response.text}")
         st.stop()
 
     data = response.json()
     results_df = pd.DataFrame(data["results"])
 
-    # ------------------------
-    # Global system metric (KL)
-    # ------------------------
-    st.subheader("📐 Sim-to-Real Gap (Quantum System)")
+    # --------------------------------------------------
+    # Sort strictly in UI (authoritative ranking)
+    # --------------------------------------------------
+    results_df = results_df.sort_values("rmse").reset_index(drop=True)
+    best_model = results_df.iloc[0]
+
+    # --------------------------------------------------
+    # Top Metrics Row
+    # --------------------------------------------------
+    col1, col2, col3 = st.columns(3)
 
     kl_value = results_df["kl_divergence"].iloc[0]
 
-    st.metric(
-        label="KL Divergence (Ideal vs Noisy Quantum System)",
-        value=f"{kl_value:.4f}",
-        help="This measures how much the noisy quantum system deviates from the ideal one. "
-             "It is a property of the quantum system, not the surrogate model."
-    )
+    col1.metric("KL Divergence", f"{kl_value:.4f}")
+    col2.metric("Best Model", best_model["model"])
+    col3.metric("Best RMSE", f"{best_model['rmse']:.4f}")
 
-    st.markdown("---")
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-    # ------------------------
-    # Model comparison (RMSE)
-    # ------------------------
-    st.subheader("📊 Surrogate Model Comparison")
+    # --------------------------------------------------
+    # Table + Chart Layout
+    # --------------------------------------------------
+    col_left, col_right = st.columns([1.2, 1])
 
-    results_df = results_df.sort_values("rmse")
-
-    col1, col2 = st.columns([1.2, 1])
-
-    with col1:
+    with col_left:
+        st.subheader("Model Comparison")
         st.dataframe(
-            results_df.style.format(
-                {
-                    "kl_divergence": "{:.4f}",
-                    "rmse": "{:.4f}",
-                }
-            ),
+            results_df.style.format({
+                "kl_divergence": "{:.4f}",
+                "rmse": "{:.4f}"
+            }),
             use_container_width=True
         )
 
-    with col2:
-        best_model = results_df.iloc[0]
-        st.metric(
-            label="🏆 Best Surrogate Model",
-            value=best_model["model"],
-            delta=f"RMSE = {best_model['rmse']:.4f}"
-        )
+    with col_right:
+        st.subheader("Surrogate Error (RMSE)")
+        fig, ax = plt.subplots(figsize=(6, 4))
+        bars = ax.bar(results_df["model"], results_df["rmse"])
+        ax.set_ylabel("RMSE (lower is better)")
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
 
-    # ------------------------
-    # RMSE plot (model-dependent)
-    # ------------------------
-    st.subheader("📉 Surrogate Prediction Error")
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(
+                f"{height:.3f}",
+                xy=(bar.get_x() + bar.get_width()/2, height),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=9
+            )
 
-    fig, ax = plt.subplots(figsize=(7, 4))
+        st.pyplot(fig)
 
-    bars = ax.bar(
-        results_df["model"],
-        results_df["rmse"]
-    )
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-    ax.set_ylabel("RMSE (lower is better)")
-    ax.set_xlabel("Surrogate Model")
-    ax.set_title("Model-wise Surrogate Prediction Error")
-    ax.grid(axis="y", linestyle="--", alpha=0.5)
-
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(
-            f"{height:.3f}",
-            xy=(bar.get_x() + bar.get_width() / 2, height),
-            xytext=(0, 3),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=9
-        )
-
-    st.pyplot(fig)
-
-    # ------------------------
-    # Recommendation
-    # ------------------------
-    st.subheader("🧠 System Recommendation")
-
+    # --------------------------------------------------
+    # Recommendation Panel
+    # --------------------------------------------------
     st.success(
-        f"""
-        **Recommended surrogate model:** `{data['recommendation']}`
-
-        This model achieves the **lowest prediction error (RMSE)** when
-        approximating the quantum sim-to-real gap under the specified
-        noise configuration.
-        """
+        f"Recommended surrogate model: {best_model['model']}\n\n"
+        f"This model achieves the lowest RMSE for the given noise configuration."
     )
 
-    # ------------------------
-    # Technical summary
-    # ------------------------
-    with st.expander("🔍 Technical Summary (for reviewers)"):
-        st.markdown(
-            f"""
-            **Quantum setup**
-            - Qubits: {n_qubits}
-            - Circuit depth: {depth}
-            - 1Q error (p₁): {p1}
-            - 2Q error (p₂): {p2}
-            - Shots: {shots}
+    # --------------------------------------------------
+    # Technical Summary
+    # --------------------------------------------------
+    with st.expander("Technical Summary"):
+        st.write(f"""
+        Qubits: {n_qubits}  
+        Depth: {depth}  
+        1Q Error (p₁): {p1}  
+        2Q Error (p₂): {p2}  
+        Shots: {shots}
 
-            **Metrics**
-            - **KL divergence**: global sim-to-real gap (physics-level)
-            - **RMSE**: surrogate prediction error (model-level)
-
-            **Interpretation**
-            - KL divergence quantifies noise severity.
-            - RMSE quantifies surrogate accuracy.
-            """
-        )
+        KL Divergence represents the system-level sim-to-real gap.
+        RMSE represents surrogate model prediction accuracy.
+        """)
