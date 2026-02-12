@@ -64,19 +64,27 @@ def predict(req: NoiseRequest):
 @app.post("/evaluate", response_model=EvaluationResponse)
 def evaluate(req: NoiseRequest):
 
-    # ---- build circuit
+    # --------------------------------------------
+    # 1. Build deterministic circuit
+    # --------------------------------------------
     qc = build_random_circuit(
         n_qubits=req.n_qubits,
         depth=req.depth,
         seed=123
     )
 
-    # ---- ideal simulation
+    # --------------------------------------------
+    # 2. Ideal simulation
+    # --------------------------------------------
     ideal_counts = simulate_distribution(
-        qc, noise_model=None, seed=123
+        qc,
+        noise_model=None,
+        seed=123
     )
 
-    # ---- noisy simulation
+    # --------------------------------------------
+    # 3. Noisy simulation
+    # --------------------------------------------
     noise_model = NoiseModel()
     noise_model.add_all_qubit_quantum_error(
         depolarizing_error(req.p1, 1), ["h"]
@@ -86,18 +94,30 @@ def evaluate(req: NoiseRequest):
     )
 
     noisy_counts = simulate_distribution(
-        qc, noise_model=noise_model, seed=123
+        qc,
+        noise_model=noise_model,
+        seed=123
     )
 
-    # ---- true KL divergence
+    # --------------------------------------------
+    # 4. True KL divergence
+    # --------------------------------------------
     true_kl = kl_divergence(
-        ideal_counts, noisy_counts, req.shots
+        ideal_counts,
+        noisy_counts,
+        req.shots
     )
 
+    true_fidelity = 1.0 - true_kl
+
+    # --------------------------------------------
+    # 5. Evaluate Surrogates
+    # --------------------------------------------
     results = []
 
     for name, model in surrogate_models.items():
 
+        # ----- NN -----
         if name == "nn_surrogate":
             x = torch.tensor(
                 [[req.n_qubits, req.depth, req.p1, req.p2]],
@@ -106,25 +126,36 @@ def evaluate(req: NoiseRequest):
             with torch.no_grad():
                 pred_fidelity = model(x).item()
 
+        # ----- RF -----
         elif name == "rf_surrogate":
-            pred_fidelity = model.predict(
-                [[req.n_qubits, req.depth, req.p1, req.p2]]
-            )[0]
+            pred_fidelity = float(
+                model.predict(
+                    [[req.n_qubits, req.depth, req.p1, req.p2]]
+                )[0]
+            )
 
-        rmse = abs(pred_fidelity - (1.0 - true_kl))
+        # --------------------------------------------
+        # Compute RMSE properly
+        # --------------------------------------------
+        error = pred_fidelity - true_fidelity
+        rmse = float(np.sqrt(error ** 2))
 
         results.append(
             ModelResult(
                 model=name,
                 kl_divergence=true_kl,
+                prediction=pred_fidelity,
                 rmse=rmse
             )
         )
 
-    # sort best → worst
-    results.sort(key=lambda r: r.kl_divergence)
+    # --------------------------------------------
+    # 6. Sort by RMSE (correct ranking)
+    # --------------------------------------------
+    results.sort(key=lambda r: r.rmse)
 
     return EvaluationResponse(
         results=results,
+        true_fidelity=true_fidelity,
         recommendation=results[0].model
     )

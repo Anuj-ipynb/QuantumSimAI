@@ -13,12 +13,15 @@ class NoiseRequest(BaseModel):
 class ModelResult(BaseModel):
     model: str
     kl_divergence: float
+    prediction: float
     rmse: float
 
 
 class EvaluationResponse(BaseModel):
-    results: List[ModelResult]
+    results: list[ModelResult]
+    true_fidelity: float
     recommendation: str
+
 
 
 class NoiseResponse(BaseModel):
